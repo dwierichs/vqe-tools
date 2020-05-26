@@ -11,6 +11,7 @@ The collection contains multiple modules:
 3. Optimizers: Vanilla Gradient Descent (GD), Adam, Quantum Natural Gradient Descent (QNG/NatGrad)
 4. A decoupled version of the Fubini-Study matrix implementation in the circuit class. 
    This is the place to look at in order to review our implementation as it is self-contained.
+5. Tests are provided for the functionalities via pytest
 
 # Usage
 Have a look at the interactive notebooks to explore the functionalities implemented so far
