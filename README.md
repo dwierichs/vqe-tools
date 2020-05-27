@@ -1,5 +1,5 @@
 # vqe-tools
-Collection of projectq-based circuit simulation tools and optimization routines for variational quantum eigensolvers
+Here we collect projectq-based circuit simulation tools and optimization routines for variational quantum eigensolvers, which we used for [our paper](www.arxiv.org/abs/2004.14666) on the natural gradient descent optimizer.
 
 # Requirements
 The code uses standard python packages and *projectQ*, see requirements.txt for tested versions
@@ -14,6 +14,6 @@ The collection contains multiple modules:
 5. Tests are provided for the functionalities via pytest
 
 # Usage
-Have a look at the interactive notebooks to explore the functionalities implemented so far
+Have a look at the interactive notebooks to explore the functionalities implemented so far. We recommend cloning the repository and starting an own notebook to assure proper rendering of the formulae in the comments.
 
 
