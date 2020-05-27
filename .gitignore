@@ -4,3 +4,6 @@ __pycache__/**
 env/**
 deprecated/**
 pytest.ini
+settings.json
+test.tex
+.ipynb_checkpoints/**
