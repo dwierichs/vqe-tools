@@ -7,6 +7,7 @@ import _add_gates as add_g
 import projectq as pq
 from projectq.ops import *
 from projectq.ops import QubitOperator as QuOp
+import util
 
 
 """ In the following code, the word gate might refer to either a ProjectQ gate
@@ -20,77 +21,6 @@ from projectq.ops import QubitOperator as QuOp
     
     """
 
-# {parametrized gate: generators} mapping
-_DERIVATIVES = {
-                'Rx'   : [[X, -1j/2]],
-                'Ry'   : [[Y, -1j/2]],
-                'Rz'   : [[Z, -1j/2]],
-                'Rxx'  : [[add_g.XX,-1j/2]],
-                'Ryy'  : [[add_g.YY,-1j/2]],
-                'Rzz'  : [[add_g.ZZ,-1j/2]],
-                }
-
-def group_gates(gates, param, var_par):
-    """ Groups the gates of a circuit (without reordering them) into blocks 
-        connected to a varied parameter.
-        Fixed parameters are treated like unparametrized gates. 
-        All parameters of callable gates are plugged in.
-
-    Args:
-        gates (iterable): list of gates composing the circuit with each gate
-                          in the format [pq.gate, qubits, parameter index]
-        param (iterable): parameters for the circuit
-        var_par (iterable): indices of parameters that are to be varied
-    Returns:
-        gate_groups (list): list of groups of gates with gates in the format
-                            as in the input. gate_groups[I] contains the gates
-                            to be executed before applying the var_par[I]-th 
-                            derivative operator. parameters are plugged into
-                            all gates.
-    Comment:
-        Warning! This function assumes that 
-          - gates[i][2]>=gates[j][2] if i>j
-
-    """
-    # initialization
-    gate_groups = []; I = 0; i = var_par[0]; group = []
-    # run through gates in circuit
-    for gate, qub, par in gates:
-        # if the gate is parametrized by the current (non-fixed) parameter
-        if par==i:
-            # write all _previous_ gates to the previous parameter gate group
-            gate_groups.append(group)
-            # reset collection of gates for current parameter
-            group = []
-            # advance the parameter index
-            I += 1; 
-            # if the parameter index exceeds the parameter list we arrived at 
-            # gates that are executed after the first gate that depends on the 
-            # last parameter, correspondingly we only will append all gates and
-            # don't need to advance in the parameter list anymore
-            if I==len(var_par):
-                # this is never matched
-                i = -1
-            # else we assign the new parameter index to i
-            else:
-                i = var_par[I]
-
-        # append gate if not parametrized
-        if not callable(gate):
-            group.append([gate, qub, par])
-        # plug in parameter into controlled gate and append
-        elif isinstance(gate, ControlledGate):
-            group.append([C(gate._gate(param[par])), qub, par])
-        # plug in parameter into gate and append
-        else:
-            group.append([(gate(param[par])), qub, par])
-
-    # the last gate group collects all gates from the first occurence of the 
-    # last parameter onwards
-    gate_groups.append(group)
-
-    return gate_groups
-
 def fubini(gates, par, N, fixed_par=None, gate_groups=None, incl_grad=False, 
         h_paulis=None, sym_translation=False, sym_reflection=False):
     """ Compute the Fubini-Study matrix
@@ -101,7 +31,8 @@ def fubini(gates, par, N, fixed_par=None, gate_groups=None, incl_grad=False,
         par (iterable): circuit parameters
         N (int): number of qubits
         fixed_par (iterable): list of indices of fixed parameters
-        gate_groups (iterable): groups of gates, see output of group_gates()
+        gate_groups (iterable): groups of gates, see output of 
+                                util.group_gates() for details
         incl_grad (bool): whether or not to compute the gradient by reusing 
                           circuits
         h_paulis (iterable): pauli decomposition of the Hamiltonian for
@@ -135,7 +66,7 @@ def fubini(gates, par, N, fixed_par=None, gate_groups=None, incl_grad=False,
 
     # if not given, we can create the gate_groups here
     if gate_groups is None:
-        gate_groups = group_gates(gates, par, var_par)
+        gate_groups = util.group_gates(gates, par, var_par)
 
     # initialization
     F = np.zeros((n,n)) # F is a real matrix, c.f. end of function
@@ -153,7 +84,7 @@ def fubini(gates, par, N, fixed_par=None, gate_groups=None, incl_grad=False,
         for gate, qub, par in gate_groups[I+1]:
             # select only the gates containing the derived parameter
             if par==i:
-                for der_op, coeff in _DERIVATIVES[str(gate).split('(')[0]]:
+                for der_op, coeff in util._DERIVATIVES[str(gate).split('(')[0]]:
                     der.append([der_op, coeff, qub])
         der_ops.append(der)
 

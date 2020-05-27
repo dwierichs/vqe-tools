@@ -20,13 +20,14 @@ class Circuit():
     """
 
     def __init__(self, N, verbose=False, drawing=False, bounds=(-0.05,0.05),
-            shots=0, sym_translation=False, sym_reflection=False):
+            shots=0, sym_translation=False, sym_reflection=False,
+            name='Unnamed'):
         """
 
         Args:
             N (int): number of qubits
             verbose (bool): whether or not to output messages about the circuit
-            drawing (bool): Whether to draw the circuit instead of computing
+            drawing (bool): whether to draw the circuit instead of computing
             bounds (tuple): lower and upper bound for random initial parameters
             shots (int): number of shots for evaluation
             sym_translation (bool): whether or not the circuit and the 
@@ -35,6 +36,7 @@ class Circuit():
             sym_reflection (bool): whether or not the circuit and Hamiltonian
                                    are invariant under reflection. requires 
                                    sym_translation=True 
+            name (str): name of the circuit
         Returns:
 
         Sets:
@@ -46,6 +48,7 @@ class Circuit():
             sym_translation (arg)
             sym_reflection (arg)
             eng (projectq.MainEngine)
+            name (arg)
         Comments:
             draw() requires drawing=True
             sym_reflection=True requires sym_translation=True
@@ -61,6 +64,7 @@ class Circuit():
         self.shots = shots
         self.sym_translation = sym_translation
         self.sym_reflection = sym_reflection
+        self.name = name
         if drawing:
             self.eng = pq.MainEngine(backend=pq.backends.CircuitDrawer(),
                     engine_list=[])
@@ -148,9 +152,7 @@ class Circuit():
                 return None
 
         elif model == 'J1J2':
-            for kw in ['J2',]:
-                if kw in kwargs.keys():
-                    J2 = kwargs[kw]
+            J2 = kwargs.pop('J2',1.)
             self.H_paulis = [
                      [add_g.XX, 1., [0,1]],
                      [add_g.YY, 1., [0,1]],
@@ -181,6 +183,7 @@ class Circuit():
 
         elif model == 'Ham':
             self.model_H = kwargs.pop('H')
+            self.H_paulis = kwargs.pop('H_paulis', None)
             def meas_eval():
                 return None
 
@@ -192,65 +195,6 @@ class Circuit():
 
         return None
 
-    def _group_gates(self, param, var_par):
-        """ Groups the gates of a circuit (without reordering them) into blocks 
-            connected to a varied parameter.
-            Fixed parameters are treated like unparametrized gates. 
-            All parameters of callable gates are plugged in.
-
-        Args:
-            param (iterable): parameters for the circuit
-            var_par (iterable): indices of parameters that are to be varied
-        Returns:
-            gate_groups (list): list of groups of gates with gates in the same
-                                format as in the input. gate_groups[I] contains
-                                the gates to be executed before applying the 
-                                var_par[I]-th derivative operator. Parameters 
-                                are plugged into all gates.
-        Comments:
-            Warning! This function assumes that 
-              - gates[i][2]>=gates[j][2] if i>j
-              - gates[i][0], gates[j][0] commute if gates[i][2]==gates[j][2]
-
-        """
-        # initialization
-        gate_groups = []; I = 0; i = var_par[0]; group = []
-        # run through gates in circuit
-        for gate, qub, j in self.gates:
-            # if the gate is parametrized by the current (non-fixed) parameter
-            if j==i:
-                # write all _previous_ gates to the previous parameter gate group
-                gate_groups.append(group)
-                # reset collection of gates for current parameter
-                group = []
-                # advance the parameter index
-                I += 1; 
-                # if the parameter index exceeds the parameter list we arrived at 
-                # gates that are executed after the first gate that depends on the 
-                # last parameter, correspondingly we only will append all gates and
-                # don't need to advance in the parameter list anymore
-                if I==len(var_par):
-                    # this is never matched
-                    i = -1
-                # else we assign the new parameter index to i
-                else:
-                    i = var_par[I]
-
-            # append gate if not parametrized
-            if not callable(gate):
-                group.append([gate, qub, j])
-            # plug in parameter into controlled gate and append
-            elif isinstance(gate, ControlledGate):
-                group.append([C(gate._gate(param[j])), qub, j])
-            # plug in parameter into gate and append
-            else:
-                group.append([(gate(param[j])), qub, j])
-
-        # the last gate group collects all gates from the first occurence of the 
-        # last parameter onwards
-        gate_groups.append(group)
-
-        return gate_groups
 
     def _run(self, param=None):
         """ Run the circuit without measurement or expectation value evaluation
@@ -369,8 +313,8 @@ class Circuit():
         Args:
             param (iterable): circuit parameters
             fixed_par (iterable): list of indices of fixed parameters
-            gate_groups (iterable): groups of gates, see output of 
-                                    _group_gates(), computed if not provided
+            gate_groups (iterable): groups of gates, see output format of 
+                                    util.group_gates, computed if not provided
             incl_grad (bool): whether or not to compute the gradient by reusing 
                               circuits
         Returns:
@@ -392,7 +336,7 @@ class Circuit():
 
         # if not given, we can create the gate_groups here
         if gate_groups is None:
-            gate_groups = self._group_gates(param, var_par)
+            gate_groups = util.group_gates(self.gates, param, var_par)
 
         # initialization
         F = np.zeros((n,n)) # F is a real matrix, c.f. end of function
@@ -590,12 +534,14 @@ class Circuit():
 
         return F, grad
 
-    def draw(self, filename, param=None):
+    def draw(self, filename=None, param=None):
         """ Output a drawing of the circuit to a tex file 
 
         Args:
-            filename (str): file name for the latex drawing code
+            filename (str): file name to store the latex drawing code
             param (array): gate parameters, if None use stored ones
+        Returns:
+            tex (str): latex code to draw the circuit
         Comments:
             filename can be given w/o file extension
         """
@@ -604,21 +550,23 @@ class Circuit():
                 'CircuitDrawer backend.')
         self._run(param)
         self.eng.flush(deallocate_qubits=True)
-        # add file ending if missing
-        if filename[-4:] != '.tex':
-            filename += '.tex'
-        # write to file
-        with open(filename, 'w') as f:
-            f.write(self.eng.backend.get_latex())
+        tex = self.eng.backend.get_latex()
+        if filename is not None:
+            # add file ending if missing
+            if filename[-4:] != '.tex':
+                filename += '.tex'
+            # write to file
+            with open(filename, 'w') as f:
+                f.write(tex)
 
-        return None
+        return tex
 
 
 class Custom(Circuit):
-    ''' Custom circuit subclass '''
+    """ Custom circuit subclass """
 
     def __init__(self, *args, layers, gates=None, initgates=[], **kwargs):
-        ''' 
+        """ 
 
         Args:
             layers (iterable): layertypes of the circuit, chosen from 
@@ -627,7 +575,7 @@ class Custom(Circuit):
                               overriding layers option. Each gate has format 
                               [gate,qubits,parameter index]
             initgates (iterable): prepend some initial gates in order to 
-                                  prepare \psi_0; these gates are not 
+                                  prepare psi_0; these gates are not 
                                   parametrized
         Sets:
             name (str): fixed as Custom Circuit
@@ -636,7 +584,7 @@ class Custom(Circuit):
                                   constructed from layers and initgates
             n (int): number of parameters
 
-        '''
+        """
         self.name = 'Custom Circuit'
         self.layers = layers
 

@@ -51,3 +51,65 @@ _LAYERS = {
     #  reuse previous variational parameters
     'Ryy*': lambda N: [[Ryy, [i,(i+1)%N], -1] for i in range(N)], 
     }
+
+def group_gates(gates, param, var_par):
+    """ Groups the gates of a circuit (without reordering them) into blocks 
+        connected to a varied parameter.
+        Fixed parameters are treated like unparametrized gates. 
+        All parameters of callable gates are plugged in.
+
+    Args:
+        gates (iterable): list of gates composing the circuit with each gate
+                          in the format [pq.gate, qubits, parameter index]
+        param (iterable): parameters for the circuit
+        var_par (iterable): indices of parameters that are to be varied
+    Returns:
+        gate_groups (list): list of groups of gates with gates in the same
+                            format as in the input. gate_groups[I] contains
+                            the gates to be executed before applying the 
+                            var_par[I]-th derivative operator. Parameters 
+                            are plugged into all gates.
+    Comments:
+        Warning! This function assumes that 
+          - gates[i][2]>=gates[j][2] if i>j
+          - gates[i][0], gates[j][0] commute if gates[i][2]==gates[j][2]
+
+    """
+    # initialization
+    gate_groups = []; I = 0; i = var_par[0]; group = []
+    # run through gates in circuit
+    for gate, qub, j in gates:
+        # if the gate is parametrized by the current (non-fixed) parameter
+        if j==i:
+            # write all _previous_ gates to the previous parameter gate group
+            gate_groups.append(group)
+            # reset collection of gates for current parameter
+            group = []
+            # advance the parameter index
+            I += 1; 
+            # if the parameter index exceeds the parameter list we arrived at 
+            # gates that are executed after the first gate that depends on the 
+            # last parameter, correspondingly we only will append all gates and
+            # don't need to advance in the parameter list anymore
+            if I==len(var_par):
+                # this is never matched
+                i = -1
+            # else we assign the new parameter index to i
+            else:
+                i = var_par[I]
+
+        # append gate if not parametrized
+        if not callable(gate):
+            group.append([gate, qub, j])
+        # plug in parameter into controlled gate and append
+        elif isinstance(gate, ControlledGate):
+            group.append([C(gate._gate(param[j])), qub, j])
+        # plug in parameter into gate and append
+        else:
+            group.append([(gate(param[j])), qub, j])
+
+    # the last gate group collects all gates from the first occurence of the 
+    # last parameter onwards
+    gate_groups.append(group)
+
+    return gate_groups

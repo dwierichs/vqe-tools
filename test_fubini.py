@@ -1,4 +1,5 @@
 import pytest
+import util
 import fubini
 import tfi_ff
 import numpy as np
@@ -56,14 +57,6 @@ def gen_yama_specs(alpha=0.4, beta=0.2):
 
     return gates, par, paulis, grad, F
 
-# Test _DERIVATIVES dictionary for correct formatting
-@pytest.mark.parametrize("k,v",fubini._DERIVATIVES.items())
-def test_derivative_lookup(k,v):
-    assert type(k)==str and type(v)==list
-    assert np.all([type(g)==list and len(g)==2 for g in v])
-    assert np.all([isinstance(g[0], BasicGate) for g in v])
-    assert np.all([type(g[1]) in [complex, float] for g in v])
-
 # test group_gates function
 param = np.random.random(4)
 # gates to be grouped
@@ -88,7 +81,7 @@ correct_groups = {str(var_par): [[
 
 @pytest.mark.parametrize("var_par",var_pars)
 def test_group_gates(var_par):
-    gate_groups = fubini.group_gates(gates,param,var_par)
+    gate_groups = util.group_gates(gates,param,var_par)
     assert len(gate_groups)==len(var_par)+1
     assert np.sum([len(group) for group in gate_groups])==len(gates)
     assert np.all(gate_groups==correct_groups[str(var_par)])
@@ -121,7 +114,7 @@ var_pars = [[0,1,2,3], [0,2], [0,1], [3]]
         product([4,5], [2,3], y_posis, var_pars))
 def test_fubini_symmetry(N, p, y_pos, var_par):
     gates, param, paulis = gen_tfi_specs(N, p, y_pos, 0.5)
-    gate_groups = fubini.group_gates(gates, param, var_par)
+    gate_groups = util.group_gates(gates, param, var_par)
     print(gates, gate_groups)
     fixed_par = [j for j in range(2*p+len(y_pos)) if j not in var_par]
     Fs = []; gs = []
