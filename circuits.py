@@ -54,9 +54,11 @@ class Circuit():
             sym_reflection=True requires sym_translation=True
 
         """
-        # if we use reflection symmetry we require translation symmetry
-        if sym_reflection: assert sym_translation, \
-                'Only use sym_reflection together with sym_translation'
+        # if we use reflection symmetry, require translation symmetry and N%2=0
+        if sym_reflection: 
+            assert sym_translation, ('Only use sym_reflection together with '
+                'sym_translation')
+            assert N%2==0, ('Only use sym_reflection for even N')
         self.N = N
         self.verbose = verbose
         self.drawing = drawing
@@ -124,7 +126,7 @@ class Circuit():
                     self.model_H += QuOp(f'Z{i} Z{(i+1)%self.N}', -1./self.N)
                     self.model_H += QuOp(f'X{i}', -t/self.N)
             # gate sets for sampled measurements
-            self.measurement_bases = [[],[[H,[i],None] for i in range(self.N)]]
+            self.measurement_bases = [[],[[H,i] for i in range(self.N)]]
             def meas_eval(z,x):
                 ev = -1/self.N*np.sum([z[i]*z[(i+1)%self.N] for i in \
                     range(self.N)])
@@ -147,9 +149,8 @@ class Circuit():
                     self.model_H += QuOp(f'X{i} X{(i+1)%self.N}', 1./self.N)
                     self.model_H += QuOp(f'Y{i} Y{(i+1)%self.N}', 1./self.N)
                     self.model_H += QuOp(f'Z{i} Z{(i+1)%self.N}', delta /self.N)
-            def meas_eval(): # We are not using this, so it is a place holder
-                print('meas_eval in XXZ model used!')
-                return None
+            # We are not using this, so it is a place holder
+            meas_eval = None
 
         elif model == 'J1J2':
             J2 = kwargs.pop('J2',1.)
@@ -170,9 +171,8 @@ class Circuit():
                 self.model_H += QuOp(f'X{i} X{(i+2)%self.N}', J2/self.N)
                 self.model_H += QuOp(f'Y{i} Y{(i+2)%self.N}', J2/self.N)
                 self.model_H += QuOp(f'Z{i} Z{(i+2)%self.N}', J2/self.N)
-            def meas_eval(): # We are not using this, so it is a place holder
-                print('meas_eval in J1J2 model used!')
-                return None
+            # We are not using this, so it is a place holder
+            meas_eval = None
 
         elif model == 'H_2':
             assert self.N == 2, 'N should be 2 for the Hydrogen model.'
@@ -180,12 +180,21 @@ class Circuit():
             g = [0.2252, 0.3435, -0.4347, 0.5716, 0.0910, 0.0910]
             for i in range(len(g)):
                 self.model_H += QuOp(op[i], g[i]) 
+            self.H_paulis = [
+                     [Z, g[1], [0]],
+                     [Z, g[2], [1]],
+                     [add_g.ZZ, g[3], [0,1]],
+                     [add_g.YY, g[4], [0,1]],
+                     [add_g.XX, g[5], [0,1]],
+                     ]
+            # We are not using this, so it is a place holder
+            meas_eval = None
 
         elif model == 'Ham':
             self.model_H = kwargs.pop('H')
             self.H_paulis = kwargs.pop('H_paulis', None)
-            def meas_eval():
-                return None
+            # We are not using this, so it is a place holder
+            meas_eval = None
 
         self.model_H.compress()
         self.meas_eval = meas_eval
@@ -265,11 +274,12 @@ class Circuit():
             # to be precise, we waste one state reconstruction at the end
             else:
                 # secondary engine for buffering the state
+                engine_list = []
                 buf_eng = pq.MainEngine(pq.backends.Simulator(), engine_list)
-                buf_qureg = buf_eng.allocate_qureg(self.N+1)
+                buf_qureg = buf_eng.allocate_qureg(self.N)
                 buf_eng.backend.set_wavefunction(self.eng.backend.cheat()[1], 
                     buf_qureg)
-                energies = 0
+                energies = []
                 for _ in range(self.shots):
                     # measured strings in various bases
                     measurements = []
@@ -278,10 +288,10 @@ class Circuit():
                         # apply basis change gates
                         for gate, qub in basis:
                             try:
-                                gate | [self.qureg[i] for i in qub] 
+                                gate | [self.qureg[qub]]
                             # ?
                             except IndexError:
-                                gate | tuple(self.qureg[i] for i in qub)
+                                gate | tuple(self.qureg[qub])
                         # measure qubits
                         All(Measure) | self.qureg
                         self.eng.flush(deallocate_qubits=False)
@@ -294,6 +304,8 @@ class Circuit():
                     # decode the measured strings into a value of H
                     energies.append(self.meas_eval(*measurements))
                 ev = np.mean(energies)
+                All(Measure) | buf_qureg
+                buf_eng.flush(deallocate_qubits=True)
             self._deallocate() 
 
         # catch interrupts during circuit evaluation to avoid projectq errors
@@ -302,6 +314,9 @@ class Circuit():
                     f'model Hamiltonian via Circuit.set_hamiltonian?')
         except KeyboardInterrupt:
             self._deallocate()
+            if self.shots>0:
+                All(Measure) | buf_qureg
+                buf_eng.flush(deallocate_qubits=True)
             raise KeyboardInterrupt('Derived KeyboardInterrupt '
                     'from Circuit.eval()')
 
@@ -336,7 +351,10 @@ class Circuit():
 
         # if not given, we can create the gate_groups here
         if gate_groups is None:
-            gate_groups = util.group_gates(self.gates, param, var_par)
+            if var_par==[]:
+                gate_groups = self.gates
+            else:
+                gate_groups = util.group_gates(self.gates, param, var_par)
 
         # initialization
         F = np.zeros((n,n)) # F is a real matrix, c.f. end of function
@@ -492,20 +510,13 @@ class Circuit():
                     if incl_grad:
                         # run over Paulis in Hamiltonian
                         for h_op, h_coeff, h_qub in self.H_paulis:
-                            # apply the current Pauli if it's not the identity
-                            if (not isinstance(h_op, QuOp) 
-                                    or h_op.terms != {():1.0}):
-                                C(h_op) | (ancilla, 
-                                        [self.qureg[x] for x in h_qub])
+                            C(h_op) | (ancilla, [self.qureg[x] for x in h_qub])
                             # compute gradient contribution via EV on ancilla
                             grad[I] += -2*coeff_i.imag*h_coeff\
                                     *self.eng.backend.get_expectation_value(
                                             QuOp('Y0',1.), [ancilla])
                             # undo the current Pauli (self-inverse)
-                            if (not isinstance(h_op, QuOp) 
-                                    or h_op.terms != {():1.0}):
-                                C(h_op) | (ancilla, 
-                                        [self.qureg[x] for x in h_qub])
+                            C(h_op) | (ancilla, [self.qureg[x] for x in h_qub])
 
                     # reset the state to before applying the controlled
                     # generator gate corresponding to parameter i
@@ -565,7 +576,7 @@ class Circuit():
 class Custom(Circuit):
     """ Custom circuit subclass """
 
-    def __init__(self, *args, layers, gates=None, initgates=[], **kwargs):
+    def __init__(self, *args, layers, gates=None, initgates=None, **kwargs):
         """ 
 
         Args:
@@ -591,9 +602,9 @@ class Custom(Circuit):
         Circuit.__init__(self, *args, **kwargs) 
 
         # set up gate structure if gates are given
-        if gates is not None:
+        if gates not in [None, []]:
             self.gates = gates
-            par_shift = np.max([g[2] for g in gates])+1
+            par_shift = np.max([g[2] for g in gates if g[2] is not None])+1
         # of if gates are not given via layers
         else:
             par_shift = 0
@@ -616,7 +627,8 @@ class Custom(Circuit):
                             '\nThese are the available gates:'
                             f'\n{util._LAYERS.keys()}')
 
-        self.gates = initgates + self.gates
+        if initgates not in [None, []]:
+            self.gates = initgates + self.gates
         # memorize number of parameters in ansatz
         self.n = par_shift
         # initialize parameters

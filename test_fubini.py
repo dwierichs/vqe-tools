@@ -79,15 +79,7 @@ correct_groups = {str(var_par): [[
     for group in grouping] 
     for var_par, grouping in correct_indices.items()}
 
-@pytest.mark.parametrize("var_par",var_pars)
-def test_group_gates(var_par):
-    gate_groups = util.group_gates(gates,param,var_par)
-    assert len(gate_groups)==len(var_par)+1
-    assert np.sum([len(group) for group in gate_groups])==len(gates)
-    assert np.all(gate_groups==correct_groups[str(var_par)])
-
 # test fubini regarding its correctness on analytically known examples
-
 N_tfi = 4; t=0.5
 tfi_gates, tfi_par, tfi_paulis = gen_tfi_specs(N_tfi, N_tfi//2, [], t)
 _, tfi_g, tfi_F = tfi_ff.eval_all(tfi_par, t=t)  # interdependence to be removed

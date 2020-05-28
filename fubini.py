@@ -66,7 +66,10 @@ def fubini(gates, par, N, fixed_par=None, gate_groups=None, incl_grad=False,
 
     # if not given, we can create the gate_groups here
     if gate_groups is None:
-        gate_groups = util.group_gates(gates, par, var_par)
+        if var_par==[]:
+            gate_groups = gates
+        else:
+            gate_groups = util.group_gates(gates, par, var_par)
 
     # initialization
     F = np.zeros((n,n)) # F is a real matrix, c.f. end of function
