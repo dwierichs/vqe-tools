@@ -3,4 +3,4 @@ matplotlib==3.2.1
 notebook==6.0.3
 numpy==1.18.4
 projectq==0.5.0
-scipy==1.4.1
+scipy==1.10.0
